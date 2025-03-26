@@ -1,0 +1,302 @@
+@page "/"
+@using NuGet.Downloader.Services
+@using NuGet.Protocol.Core.Types
+@using NuGet.Versioning
+@using NuGet.Frameworks
+@inject NuGetService NuGetService
+@inject IJSRuntime JSRuntime
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-8 offset-md-2">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Поиск NuGet пакетов</h3>
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" @bind="searchTerm" @bind:event="oninput" placeholder="Введите название пакета...">
+                        <button class="btn btn-primary" @onclick="SearchPackages">Поиск</button>
+                    </div>
+
+                    @if (isLoading)
+                    {
+                        <div class="text-center">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Загрузка...</span>
+                            </div>
+                        </div>
+                    }
+                    else if (error != string.Empty)
+                    {
+                        <div class="alert alert-danger">
+                            @error
+                        </div>
+                    }
+                    else if (packages != null)
+                    {
+                        <div class="list-group">
+                            @foreach (var package in packages)
+                            {
+                                <div class="list-group-item">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <h5 class="mb-1">@package.Identity.Id</h5>
+                                            <p class="mb-1">@package.Description</p>
+                                        </div>
+                                        <button class="btn btn-sm btn-primary" @onclick="() => ShowPackageDetails(package)">
+                                            Подробнее
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (showPackageDetailsDialog)
+{
+    <div class="modal fade show" style="display: block;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@selectedPackage?.Identity.Id</h5>
+                    <button type="button" class="btn-close" @onclick="ClosePackageDetailsDialog"></button>
+                </div>
+                <div class="modal-body">
+                    @if (selectedPackage != null)
+                    {
+                        <div class="mb-4">
+                            <h6>Описание</h6>
+                            <p>@selectedPackage.Description</p>
+                        </div>
+
+                        <div class="mb-4">
+                            <h6>Версии</h6>
+                            <div class="list-group">
+                                @foreach (var version in versions)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <span class="fw-bold">@version</span>
+                                                @if (version == selectedPackage.Identity.Version)
+                                                {
+                                                    <span class="badge bg-primary ms-2">Текущая</span>
+                                                }
+                                            </div>
+                                            <button class="btn btn-sm btn-primary" @onclick="() => ShowVersionDetails(version)">
+                                                Подробнее
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showVersionDetailsDialog)
+{
+    <div class="modal fade show" style="display: block;">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">@selectedPackage?.Identity.Id @selectedVersion</h5>
+                    <button type="button" class="btn-close" @onclick="CloseVersionDetailsDialog"></button>
+                </div>
+                <div class="modal-body">
+                    @if (selectedPackage != null && selectedVersion != null)
+                    {
+                        <div class="mb-4">
+                            <h6>Доступные фреймворки</h6>
+                            <div class="list-group">
+                                @foreach (var framework in availableFrameworks)
+                                {
+                                    <div class="list-group-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <span class="fw-bold">@framework</span>
+                                                @if (framework == targetFramework)
+                                                {
+                                                    <span class="badge bg-primary ms-2">Выбран</span>
+                                                }
+                                            </div>
+                                            <div>
+                                                <button class="btn btn-sm btn-primary me-2" @onclick="() => DownloadPackage(selectedPackage.Identity.Id, selectedVersion, false, framework)">
+                                                    Скачать
+                                                </button>
+                                                <button class="btn btn-sm btn-success" @onclick="() => DownloadPackage(selectedPackage.Identity.Id, selectedVersion, true, framework)">
+                                                    С зависимостями
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @if (dependencies.Any())
+                        {
+                            <div class="mb-4">
+                                <h6>Зависимости</h6>
+                                <div class="list-group">
+                                    @foreach (var dependency in dependencies)
+                                    {
+                                        <div class="list-group-item">
+                                            <div class="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <span class="fw-bold">@dependency.Id</span>
+                                                    <span class="text-muted">@dependency.Version</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string searchTerm = "";
+    private string targetFramework = "net9.0";
+    private IEnumerable<IPackageSearchMetadata> packages = [];
+    private bool isLoading;
+    private string error = "";
+    private bool showPackageDetailsDialog;
+    private bool showVersionDetailsDialog;
+    private IPackageSearchMetadata? selectedPackage;
+    private NuGetVersion? selectedVersion;
+    private IEnumerable<NuGetVersion> versions = [];
+    private IEnumerable<string> availableFrameworks = [];
+    private IEnumerable<PackageDependency> dependencies = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        NuGetService.SetTargetFramework(targetFramework);
+    }
+
+    private async Task OnTargetFrameworkChanged(ChangeEventArgs e)
+    {
+        targetFramework = e.Value?.ToString() ?? "net9.0";
+        NuGetService.SetTargetFramework(targetFramework);
+        StateHasChanged();
+    }
+
+    private async Task SearchPackages()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+            return;
+
+        isLoading = true;
+        error = "";
+        packages = new List<IPackageSearchMetadata>();
+
+        try
+        {
+            packages = await NuGetService.SearchPackagesAsync(searchTerm);
+        }
+        catch (Exception ex)
+        {
+            error = "Ошибка при поиске пакетов: " + ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ShowPackageDetails(IPackageSearchMetadata package)
+    {
+        selectedPackage = package;
+        isLoading = true;
+        error = "";
+        versions = new List<NuGetVersion>();
+
+        try
+        {
+            versions = await NuGetService.GetPackageVersionsAsync(package.Identity.Id);
+        }
+        catch (Exception ex)
+        {
+            error = "Ошибка при получении версий: " + ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            showPackageDetailsDialog = true;
+        }
+    }
+
+    private async Task ShowVersionDetails(NuGetVersion version)
+    {
+        selectedVersion = version;
+        isLoading = true;
+        error = "";
+
+        try
+        {
+            var packageInfo = await NuGetService.GetPackageDetailsAsync(selectedPackage!.Identity.Id, version);
+            availableFrameworks = packageInfo.AvailableFrameworks;
+            dependencies = packageInfo.Dependencies;
+        }
+        catch (Exception ex)
+        {
+            error = "Ошибка при получении информации о версии: " + ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            showVersionDetailsDialog = true;
+        }
+    }
+
+    private void ClosePackageDetailsDialog()
+    {
+        showPackageDetailsDialog = false;
+        selectedPackage = null;
+        versions = new List<NuGetVersion>();
+    }
+
+    private void CloseVersionDetailsDialog()
+    {
+        showVersionDetailsDialog = false;
+        selectedVersion = null;
+        availableFrameworks = new List<string>();
+        dependencies = new List<PackageDependency>();
+    }
+
+    private async Task DownloadPackage(string packageId, NuGetVersion version, bool withDependencies, string framework)
+    {
+        try
+        {
+            var url = withDependencies 
+                ? $"/api/download/{packageId}/{version}/with-dependencies?framework={framework}"
+                : $"/api/download/{packageId}/{version}?framework={framework}";
+            
+            var fileName = withDependencies
+                ? $"{packageId}.{version}.with-dependencies.zip"
+                : $"{packageId}.{version}.nupkg";
+                
+            await JSRuntime.InvokeVoidAsync("downloadFile", url, fileName);
+            CloseVersionDetailsDialog();
+        }
+        catch (Exception ex)
+        {
+            error = "Ошибка при скачивании пакета: " + ex.Message;
+        }
+    }
+} 
