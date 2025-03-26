@@ -23,7 +23,7 @@
 
 1. Клонируйте репозиторий:
 ```bash
-git clone https://github.com/yourusername/NuGet.Downloader.git
+git clone https://github.com/NerveFalcon/NugetTooling.git
 ```
 
 2. Перейдите в директорию проекта:
